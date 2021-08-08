@@ -12,6 +12,7 @@ output:
   html_document: 
     toc: yes
     number_sections: yes
+    keep_md: true
 ---
 # In this vignette
 In this preprocessing vignette, we start with data that has already been processed through 10X CellRanger V3. Instructions for CellRanger can be found here: 
