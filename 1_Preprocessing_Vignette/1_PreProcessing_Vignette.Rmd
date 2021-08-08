@@ -3,16 +3,16 @@ title: "1_PreProcessing_Vignette"
 author: "Matthew A. Cottam"
 date: "8/8/2021"
 output:
+  html_document: 
+    toc: yes
+    number_sections: yes
+    keep_md: true
   html_notebook: 
     theme: united
     toc_float: yes
     toc: yes
     fig_height: 6
     number_sections: yes
-  html_document: 
-    toc: yes
-    number_sections: yes
-    keep_md: true
 ---
 # In this vignette
 In this preprocessing vignette, we start with data that has already been processed through 10X CellRanger V3. Instructions for CellRanger can be found here: 
@@ -67,10 +67,10 @@ SoupX needs the filtered and raw barcode matrices found in the output folder fro
 In addition to the barcode matrices, SoupX strongly recommends some clustering information, which can be found in the 10X CellRanger output folder "analysis". 
 ```{r datafiles}
 # Read datafiles into SoupX
-Lean_soup <- load10X("10xCellRanger/Lean/")
-Obese_soup <- load10X("10xCellRanger/Obese/")
-WL_soup <- load10X("10xCellRanger/WL/")
-WC_soup <- load10X("10xCellRanger/WC/")
+Lean_soup <- load10X("../10xCellRanger/Lean/")
+Obese_soup <- load10X("../10xCellRanger/Obese/")
+WL_soup <- load10X("../10xCellRanger/WL/")
+WC_soup <- load10X("../10xCellRanger/WC/")
 ```
 ## Estimate cell specific contamination fraction
 ```{r soup, fig.width=5, fig.height=5}
@@ -107,10 +107,10 @@ This is a multimodal study. We will use the corrected counts from SoupX and the 
 
 ```{r cellranger}
 # Read in datafiles from CellRanger
-Lean.data <- Read10X("10xCellRanger/Lean/filtered_feature_bc_matrix/")
-Obese.data <- Read10X("10xCellRanger/Obese/filtered_feature_bc_matrix/")
-WL.data <- Read10X("10xCellRanger/WL/filtered_feature_bc_matrix/")
-WC.data <- Read10X("10xCellRanger/WC/filtered_feature_bc_matrix/")
+Lean.data <- Read10X("../10xCellRanger/Lean/filtered_feature_bc_matrix/")
+Obese.data <- Read10X("../10xCellRanger/Obese/filtered_feature_bc_matrix/")
+WL.data <- Read10X("../10xCellRanger/WL/filtered_feature_bc_matrix/")
+WC.data <- Read10X("../10xCellRanger/WC/filtered_feature_bc_matrix/")
 ```
 
 ## Using SoupX objects to create the Seurat object
