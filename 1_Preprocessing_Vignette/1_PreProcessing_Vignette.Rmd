@@ -36,21 +36,8 @@ We use a variety of critical libraries to facilitate data processing and analysi
 library(SoupX)
 library(Seurat)
 library(ggplot2)
-library(dplyr)
-library(clustree) 
-library(SingleR)
 library(cowplot)
 library(viridis)
-library(formattable)
-library(celldex)
-library(velocyto.R)
-library(SeuratWrappers)
-library(plotly)
-library(RColorBrewer)
-library(AnnotationDbi)
-library(org.Mm.eg.db)
-library(VAM)
-library(msigdbr)
 ```
 
 # SoupX Counts Correction
