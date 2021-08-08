@@ -9,7 +9,7 @@ output:
     toc: yes
     fig_height: 6
     number_sections: yes
-  rmarkdown::github_document: 
+  html_document: 
     toc: yes
     number_sections: yes
     keep_md: true
