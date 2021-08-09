@@ -3,18 +3,19 @@ title: "2_DataIntegration_Vignette"
 author: "Matthew A. Cottam"
 date: "8/8/2021"
 output:
+  html_document: 
+    toc: yes
+    number_sections: yes
+    keep_md: true
   html_notebook: 
     theme: united
     toc_float: yes
     toc: yes
     fig_height: 6
     number_sections: yes
-  html_document: 
-    toc: yes
-    number_sections: yes
-    keep_md: true
 ---
 # In this vignette
+
 In this data integration vignette, we will be taking the output from the Preprocessing vignette and merging our unique samples together into one unified Seurat object. We will also perform dimensional reduction on the integrated Seurat object. Herein, we will do the following:
 
 1. Normalize the RNA and ADT assays
@@ -27,7 +28,9 @@ In this data integration vignette, we will be taking the output from the Preproc
 There are multiple methods for data integration, some of which have been incorporated into Seurat V4. In this experiment, all four samples were prepared simultaneously and ultimately run on the 10X Chromium platform on the same chip. Therefore, we expect batch effects to be very small. For computational efficiency, we have integrated these data sets using the `rPCA` (reciprocal PCR) approach.
 
 # Prepare the R environment
+
 ## Load in the necessary libraries
+
 ```{r setup, message=FALSE, warning=FALSE}
 library(Seurat)
 library(ggplot2)
@@ -39,13 +42,17 @@ library(RColorBrewer)
 ```
 
 ## Load in our Seurat object list
+
 This `.rds` file comes from Vignette #1 - Data Preprocessing.
+
 ```{r readdata}
 Seurat_list <- readRDS("../1_Preprocessing_Vignette/1_Preprocessing.rds")
 ```
 
 # Prepare Seurat objects for integration
+
 ## Normalize RNA assay
+
 First, we will normalize and find variable features for the RNA assay containing our gene expression data. The variable features will be used to determine integration features.
 
 ```{r normRNA}
@@ -56,7 +63,9 @@ Seurat_list <- lapply(X = Seurat_list, FUN = function(x) {
 ```
 
 ## Normalize ADT assay
+
 Like for the `HTO` assay in the previous vignette, we will use CLR normalization for the `ADT` assay.
+
 ```{r normADT}
 Seurat_list <- lapply(X = Seurat_list, FUN = function(x) {
     x <- NormalizeData(x, assay="ADT", normalization.method="CLR", verbose= FALSE)
@@ -65,7 +74,9 @@ Seurat_list <- lapply(X = Seurat_list, FUN = function(x) {
 ```
 
 ## Select integration features
+
 The rPCA approach requires scaling of the data and subsequent PCA of each Seurat object prior to integration. Here, we are scaling on the integration features to produce our PCA results.
+
 ```{r intfeats}
 features <- SelectIntegrationFeatures(object.list = Seurat_list)
 Seurat_list <- lapply(X = Seurat_list, FUN = function(x) {
@@ -75,24 +86,30 @@ Seurat_list <- lapply(X = Seurat_list, FUN = function(x) {
 ```
 
 # Perform integration using rPCA
+
 Data integration retains metaData for each individual Seurat object. The “project name”, or diet in this experiment, is stored in the `orig.ident` metaData column.
 
 ## Determine integration anchors
+
 ```{r anchors}
 options(future.globals.maxSize= 5242880000) #Integration requires a larger global size limit than default. I've set it to 5 Gb, but ~2 Gb was required.
 anchors <- FindIntegrationAnchors(object.list = Seurat_list, anchor.features = features, reduction = "rpca", verbose=FALSE)
 ```
 
 ## Integrate objects and generated an integrated assay
+
 A new assay, called `integrated` will be generated upon data integration. We will use this assay for clustering, but will always revert to the `RNA` assay for differential expression.
+
 ```{r integration}
 data.integrated <- IntegrateData(anchorset = anchors)
 ```
 
 # Dimensional Reduction
+
 As mentioned before, the `integrated` data assay will be used for clustering and visualization.
 
 ## Scale the data and perform PCA on the integrated assay
+
 PCA is a linear dimensional reduction approach that seeks to identify the most variable sets of features. I've chosen to run 50 PCs for this experiment.
 ```{r scaleint}
 # Change default assay
@@ -104,10 +121,13 @@ data.integrated <- RunPCA(data.integrated, assay="integrated", npcs = 50, verbos
 ```
 
 ## Identify how many dimensions to use
+
 Multiple methods can be used to determine how many PCs to use for downstream analysis. Here, we use both a statistical approach `JackStraw` and a heuristic approach `ElbowPlot` as recommended in Seurat’s PBMC3k tutorial: https://satijalab.org/seurat/articles/pbmc3k_tutorial.html.
 
 ### JackStraw
+
 First, we will calculate and score via JackStraw. Warning: Jackstraw takes a long time to run.
+
 ```{r jackstraw, fig.width=10, fig.height=7}
 # Calculate the JackStraw visualization
 data.integrated <- JackStraw(data.integrated, assay= "integrated", dims= 50, num.replicate= 100, verbose= FALSE)
@@ -120,25 +140,28 @@ JackStrawPlot(data.integrated, dims=1:50) + theme(legend.position="bottom")
 ```
 
 ### ElbowPlot
+
 The `ElbowPlot` simply ranks PCs by percentage of variance.
+
 ```{r elbow, fig.width=6, fig.height=5}
 ElbowPlot(data.integrated, ndims=50)
 ```
 
 ## Nonlinear Dimensional Reduction
+
 Uniform Manifold Projection (UMAP) is the preferred visualization for large datasets. It runs more efficiently than tSNE and preserves global structure much better. However, both work well for visualization and we run both to store them as embeddings in case we need to look at both. We use all 50 PCAs, since all appear to be significant. 
 
 Note: We calculate here both 2-dimensional and 3-dimensional embeddings. 3-dimensional embeddings can be useful to capture interactions between cell types that are otherwise very different when only looking at two dimensions.
 
-Warning: UMAP in particular seems extremely sensitive to changes in OS and to any updates in the underlying software. These changes seem to result in rotations or flips across axes, even when setting the same seed.
-
 ### Calculate UMAP
+
 ```{r umap}
 data.integrated <- RunUMAP(data.integrated, dims=1:50, verbose=FALSE)
 data.integrated <- RunUMAP(data.integrated, dims=1:50, n.components=3, reduction.name="umap3D", reduction.key="UMAP3D_", verbose=FALSE)
 ```
 
 ### Calculate tSNE
+
 ```{r tsne}
 data.integrated <- RunTSNE(data.integrated, dims=1:50, verbose=FALSE)
 data.integrated <- RunTSNE(data.integrated, dims=1:50, dim.embed=3, reduction.name="tsne3D", reduction.key="tSNE3D_")
@@ -146,17 +169,37 @@ data.integrated <- RunTSNE(data.integrated, dims=1:50, dim.embed=3, reduction.na
 
 # Data Projection
 
-## 2D visualization
-```{r 2dumap, fig.width=8, fig.height=4}
+## Replace embeddings
+
+Warning: UMAP in particular seems extremely sensitive to changes in OS and to any updates in the underlying software. These changes seem to result in rotations or flips across axes, even when setting the same seed. This was the case when rerunning this vignette and specifically seems to be the number of edges defined when determining the epochs (1503980 here vs. 1501094). I've fixed this by simply replacing the embeddings with those calculated previously. To do so, I've saved the original embeddings as an `rds` file and have placed them in the folder containing the second vignette. You could easily skip this and continue on, but the exact numbers of the subclusters (but not the associated genes) in the next vignette may be different and therefore annotations could be wrong. 
+
+If you'd like to try your hand at this from the start or would like to reannotate, feel free to comment out this chunk. All steps will still be the same. For transparency sake, I've plotted the 2D visualization for UMAP and tSNE calculated before replacing the embeddings for comparison.
+
+```{r 2dcomp, fig.width=8, fig.height=4}
 d1 <- DimPlot(data.integrated, reduction="umap", label=F) + NoLegend() + labs(subtitle="UMAP")
 d2 <- DimPlot(data.integrated, reduction="tsne", label=F) + NoLegend() + labs(subtitle="tSNE")
 d1+d2
 ```
 
+```{r loadembeddings}
+#Replace reductions with previously calculated embeddings
+embeddings <- readRDS("embeddings.rds")
+data.integrated@reductions <- embeddings
+```
 
+## 2D visualization
+
+```{r 2dumap, fig.width=8, fig.height=4}
+d1 <- DimPlot(data.integrated, reduction="umap", label=F) + NoLegend() + labs(subtitle="UMAP")
+d2 <- DimPlot(data.integrated, reduction="tsne", label=F) + NoLegend() + labs(subtitle="tSNE")
+d1+d2
+```
 ## 3D visualization
+
 For 3-dimensional visualization, we use the `plotly` packaged to produce an interactive plot.
+
 ### UMAP
+
 ```{r 3dumap}
 plot.data <- FetchData(object = data.integrated, vars = c("UMAP3D_1", "UMAP3D_2", "UMAP3D_3"))
 plot_ly(data = plot.data, #3D interactive plot of the data
@@ -168,6 +211,7 @@ plot_ly(data = plot.data, #3D interactive plot of the data
 ```
 
 ### tSNE
+
 ```{r 3dtsne}
 plot.data2 <- FetchData(object = data.integrated, vars = c("tSNE3D_1", "tSNE3D_2", "tSNE3D_3"))
 plot_ly(data = plot.data2, #3D interactive plot of the data
@@ -179,11 +223,13 @@ plot_ly(data = plot.data2, #3D interactive plot of the data
 ```
 
 # Save Progress
+
 ```{r save}
 saveRDS(data.integrated, file="2_DataIntegration.rds")
 ```
 
 # Session Information
+
 ```{r session}
 sessionInfo()
 ```
