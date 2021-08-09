@@ -1,5 +1,5 @@
 ---
-title: "1_PreProcessing_Vignette"
+title: "Vignette #1 - Preprocessing"
 author: "Matthew A. Cottam"
 date: "8/8/2021"
 output:
@@ -15,6 +15,7 @@ output:
     number_sections: yes
 ---
 # In this vignette
+
 In this preprocessing vignette, we start with data that has already been processed through 10X CellRanger V3. Instructions for CellRanger can be found here: 
 https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger. 
 
@@ -30,7 +31,9 @@ As an important note, although we do frequently use for loops, this vignette has
 This vignette has been tested on both linux (Ubuntu 20.04.2) and macOS (Big Sur 11.5.1).
 
 # Prepare the R environment
+
 ## Load in the necessary libraries
+
 We use a variety of critical libraries to facilitate data processing and analysis. Most importantly, SoupX
 ```{r setup, message=FALSE, warning=FALSE}
 library(SoupX)
@@ -41,6 +44,7 @@ library(viridis)
 ```
 
 # SoupX Counts Correction
+
 SoupX calculates the background contamination from free-floating RNA (the soup) that is sequenced along with cell RNA in the droplet and corrects for this ambient RNA contamination.
 
 SoupX provides a simple workflow and functions to read in 10X CellRanger outputs. Fraction of contaminating background RNAs are parametrised as `rho` where `rho=0` means no contamination and `rho=1` means 100% of UMIs in the droplet were from soup RNA.
@@ -49,9 +53,11 @@ More about SoupX:
 Young, M.D., Behjati, S. (2020). SoupX removes ambient RNA contamination from droplet-based single-cell RNA sequencing data, GigaScience, Volume 9, Issue 12, December 2020, giaa151bioRxiv, 303727, https://doi.org/10.1093/gigascience/giaa151
 
 ## Load in the datafiles
+
 SoupX needs the filtered and raw barcode matrices found in the output folder from 10X CellRanger. In this experiment, these files are larger and therefore we've used gitLFS to store them for this vignette. You can learn more about gitLFS here: https://git-lfs.github.com/.
 
 In addition to the barcode matrices, SoupX strongly recommends some clustering information, which can be found in the 10X CellRanger output folder "analysis". 
+
 ```{r datafiles}
 # Read datafiles into SoupX
 Lean_soup <- load10X("../10xCellRanger/Lean/")
@@ -59,7 +65,9 @@ Obese_soup <- load10X("../10xCellRanger/Obese/")
 WL_soup <- load10X("../10xCellRanger/WL/")
 WC_soup <- load10X("../10xCellRanger/WC/")
 ```
+
 ## Estimate cell specific contamination fraction
+
 ```{r soup, fig.width=5, fig.height=5}
 soup_list <- list(Lean_soup = Lean_soup, 
                   Obese_soup = Obese_soup, 
@@ -69,7 +77,9 @@ for (i in seq_along(soup_list)){
   soup_list[[i]] <- autoEstCont(soup_list[[i]])
 }
 ```
+
 ## Infer corrected expression matrix
+
 ```{r soupcorrect, warning=FALSE}
 sample_list <- list()
 for (i in seq_along(soup_list)){
@@ -89,7 +99,9 @@ soup1 + soup2
 ```
 
 # Create the Seurat object
+
 ## Read in datafiles from 10X CellRanger outputs
+
 This is a multimodal study. We will use the corrected counts from SoupX and the ADT/HTO data that remains in the original CellRanger outputs.
 
 ```{r cellranger}
@@ -101,6 +113,7 @@ WC.data <- Read10X("../10xCellRanger/WC/filtered_feature_bc_matrix/")
 ```
 
 ## Using SoupX objects to create the Seurat object
+
 ```{r seuratobj}
 # Create a Seurat object list using the SoupX adjusted matrices
 # The project name is stored in the `orig.ident` metadata column, which we use frequently later.
@@ -111,7 +124,9 @@ Seurat_list
 ```
 
 ## Rename the CITE-seq antibodies.
+
 CITE-seq antibodies had long names from our original 10X CellRanger run, which also indicate which TotalSeq-C antibody they originally were. We can adjust these names for downstream processing so that they are easier to read. These names are found in the `Antibody Capture` assay.
+
 ```{r NameAbs}
 #Explore which antibodies were included in the experiment.
 rownames(Lean.data[["Antibody Capture"]])
@@ -128,6 +143,7 @@ Antibody.list <- c("Hashtag1", "Hashtag2", "Hashtag3", "Hashtag4",
 ```
 
 Adjust antibody names for clarity and create separate matrices for Hashtag and CITE-seq antibodies
+
 ```{r appAbs}
 #Apply the renamed antibody list
 rownames(x = Lean.data[["Antibody Capture"]]) <- Antibody.list
@@ -168,7 +184,9 @@ WC.HTO.counts <- WC.HTO.counts[setdiff(rownames(x = WC.HTO.counts), c("Hashtag1"
 ```
 
 ## Integrate the `Antibody Capture` assays into the SoupX-corrected Seurat object
+
 We will store the CITE-seq antibodies in the `ADT` assay and the hashtags in the `HTO` assay.
+
 ```{r AbAssays}
 #Create the Antibody Capture assay object "ADT" and the Hashtag assay object "HTO".
 Seurat_list[["Lean"]][['ADT']] <- CreateAssayObject(counts = Lean.ADT.counts)
@@ -186,6 +204,7 @@ Seurat_list
 ```
 
 ## Store original barcodes
+
 The original cell identity is indicated by the cell barcode. As a precaution, I store the original cell barcodes as a metaData column. This protects these original names for later if we need to use them to match other tools after integrating our four lanes (which may have duplicate barcodes).
 
 ```{r barcodes}
@@ -196,6 +215,7 @@ for (i in seq_along(Seurat_list)){
 ```
 
 # Quality Control
+
 Quality control of sample cells is a critical step in processing of scRNA-seq data. Our QC relies on four parameters for this dataset:
 1. Less than 5% mitochondrial RNA content
 2. Greater than 200 measured gene features
@@ -205,6 +225,7 @@ Quality control of sample cells is a critical step in processing of scRNA-seq da
 Mitochondrial RNA content can be used to predict which cells were likely undergoing mechanisms of cell death. The recommendation from the Satija lab (Seurat) and the Theis lab (SCANPY), among others, is to set the upper limit for mitochondrial RNA to 5% for murine cells (10% for human cells).
 
 ## Calculate the per-cell mitochondrial RNA content
+
 ```{r pctMt}
 for (i in seq_along(Seurat_list)){
   Seurat_list[[i]]$percent.mt <- PercentageFeatureSet(Seurat_list[[i]], pattern = "^mt-") 
@@ -212,6 +233,7 @@ for (i in seq_along(Seurat_list)){
 ```
 
 ## Visualize QC features
+
 It is helpful to visualize mitochondrial RNA content as a function of the number of UMIs measured per cell and of the number of features (genes) per cell. Here, we can observe that cells with more RNA fragments counted tend to have more features (genes) as expected. We can also observe that cells with few features (genes) and few counts frequently have higher mitochondrial content. 
 
 To do this, we use one of the visualization functions built into Seurat V4: `FeatureScatter`.
@@ -227,7 +249,9 @@ for (i in seq_along(Seurat_list)){
 ```
 
 ## Subset cells
+
 The QC parameters will be used to subset the data so that we only retain cells which are considered to be of acceptable quality based on number of RNA features, total RNA fragments measured, and frequency of mitochondrial RNA.
+
 ```{r QCsubset}
 for (i in seq_along(Seurat_list)){
   Seurat_list[[i]] <- subset(Seurat_list[[i]], subset = nFeature_RNA > 200 & nCount_RNA > 500 & percent.mt<5)
@@ -238,10 +262,13 @@ Seurat_list
 ```
 
 # Demultiplexing Hashtags
+
 In this study, hashtags were used to dilineate biological replicates. First, the hashtags will be normalized using Centered Log Ratio (CLR) normalization. After confirming proper enrichment for each hashtag, we will subset the data so that only cells which are described as singlets will be retained for downstream analysis.
 
 ## Normalize hashtag data
+
 To use CLR normalization, simply pass the option `normalization.method = "CLR"`. Be sure to also indicate that the `HTO` assay should be normalized.
+
 ```{r HTONorm, message=FALSE}
 for (i in seq_along(Seurat_list)){
   Seurat_list[[i]] <- NormalizeData(Seurat_list[[i]], assay="HTO", normalization.method="CLR", verbose=FALSE)
@@ -249,11 +276,14 @@ for (i in seq_along(Seurat_list)){
 ```
 
 ## Demultiplex
+
 Use Seurat's `HTODemux` function to demultiplex the hashtags using the sample assay. This function also stores numerous metadata columns. The two used most frequency are: 
-1) Global classification - Indicates whether cells are unlabeled, singlets, or doublets.
-2) HTO max ID - Indicates the most likely ID based on hashtags.
+
+1. Global classification - Indicates whether cells are unlabeled, singlets, or doublets.
+2. HTO max ID - Indicates the most likely ID based on hashtags.
 
 We use the default 99% positive quantile, which should provide confidence that singlets are accurately identified.
+
 ```{r HTODemux}
 for (i in seq_along(Seurat_list)){
   Seurat_list[[i]] <- HTODemux(object = Seurat_list[[i]], assay = "HTO", positive.quantile=0.99)
@@ -261,7 +291,9 @@ for (i in seq_along(Seurat_list)){
 ```
 
 ## Visualize hashtag demultiplexing
-To visualize how well separated hashtags are, we use another one of Seurat V4s functions: `RidgePlot`
+
+To visualize how well separated hashtags are, we use another one of Seurat V4s functions: `RidgePlot`.
+
 ```{r HTOenrichment, fig.width=8, fig.height=6}
 for (i in seq_along(Seurat_list)){
   Idents(Seurat_list[[i]]) <- "HTO_maxID" #Change the ident so that we plot the most likely sample ID.
@@ -277,8 +309,11 @@ for (i in seq_along(Seurat_list)){
   print(prop.table(table(Seurat_list[[i]]$HTO_classification.global)))
 }
 ```
+
 ## Subset singlets
+
 Finally, we will subset cells so that we only retain singlets for downstream processing
+
 ```{r subSinglets}
 for (i in seq_along(Seurat_list)){
   Idents(Seurat_list[[i]]) <- "HTO_classification.global" #Change the ident
@@ -290,6 +325,7 @@ Seurat_list
 ```
 
 # Save Progress
+
 The next vignette will show how we integrated our data and performed dimensional reduction. To save our current project, we will use the `saveRDS` function. This file is about 1.1gb and it seems unnecessary to move it around. Therefore, I've included all `.rds` files as part of the `git ignore` file. These will not be downloaded when the repository is cloned.
 
 ```{r save}
@@ -297,6 +333,7 @@ saveRDS(Seurat_list, file="1_Preprocessing.rds")
 ```
 
 # Session Info
+
 ```{r session info}
 sessionInfo()
 ```
