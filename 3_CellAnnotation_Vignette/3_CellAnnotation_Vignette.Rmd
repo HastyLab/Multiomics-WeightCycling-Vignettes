@@ -1,0 +1,986 @@
+---
+title: "Vignette #2 - Cell Annotation"
+author: "Matthew A. Cottam"
+date: "8/8/2021"
+output:
+  html_document: 
+    toc: yes
+    number_sections: yes
+    keep_md: true
+  html_notebook: 
+    theme: united
+    toc_float: yes
+    toc: yes
+    fig_height: 6
+    number_sections: yes
+---
+# In this vignette
+
+In this cell annotation vignette, we will be taking the output from the Data Integration vignette and identifying cell types and subtypes by expression of key marker genes. Herein, we will do the following:
+
+1. Perform low-resolution clustering
+2. Identify cell types using differentially expressed genes.
+3. Recluster each cell type at higher resolution.
+4. Identify cell subtypes within broad cell type clusters using differentially expressed genes.
+5. Run SingleR to help confirm annotations.
+
+# Prepare the R environment
+
+## Load in the necessary libraries
+
+```{r setup, message=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(SeuratWrappers)
+library(plotly)
+library(RColorBrewer)
+library(clustree)
+library(SingleR)
+library(formattable)
+```
+
+## Load in our Seurat object
+
+This `.rds` file comes from Vignette #2 - Data Integration.
+
+```{r readdata}
+data.integrated <- readRDS("../2_DataIntegration_Vignette/2_DataIntegration.rds")
+```
+
+# Clustering and visualization
+
+Seurat uses K-nearest neighbor clustering based on PCA and then clusters the cells using the Louvain algorithm. Nearest neighbor clustering requires input of dimensions. Based on the `JackStrawPlot` and `ElbowPlot`, we will use all 50 PCs and could likely use even more. However, it is noted that there are diminishing returns on the number of PCs, so 50 will be sufficient.
+
+```{r knn}
+data.integrated <- FindNeighbors(data.integrated, dims=1:50) 
+```
+
+## Clustree
+
+Resolution of the Louvain clustering algorithm greatly affects number of identified clusters. This can be visualized by iterating over multiple resolutions and then plotting using Clustree. The resulting clustering is stored in the metaData of our integrated Seurat object.
+
+```{r clustree, fig.width=12, fig.height=12}
+#Calculate clusters for a number of resolutions ranging from 0.2-1.0
+res <- c(0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0)
+data.integrated <- FindClusters(data.integrated, resolution=res)
+#Plot using Clustree
+clustree(data.integrated, prefix="integrated_snn_res.")
+```
+
+```{r reclust}
+#Recluster at the selected resolution of interest. This is not absolutely necessary, but is a nice redundancy and resets the `seurat_clusters` column in the metadata automatically.
+data.integrated <- FindClusters(data.integrated, resolution=0.4)
+```
+
+# SingleR
+The R package `SingleR` uses microarray reference datasets to attempt to annotate each individual cell. We will use this package as a tool to support cluster identification. https://bioconductor.org/packages/release/bioc/html/SingleR.html References for `SingleR` are provided by the pokedex for cells `celldex.` In this case, we will run `SinglerR` with two different databases: 1) Immgen and 2) MouseRNAseq from the gene expression omnibus.
+
+```{r singler, fig.width=12, fig.height=4}
+#Warning, this takes a very long time to run and scales poorly with number of cells, but is not computationally expensive (can run with 8 gb of RAM.
+#Load in the database information
+ImmGen <- ImmGenData() 
+MouseRNAseq <- MouseRNAseqData()
+#SingleR requires conversion to a single cell experiment object
+singleR <- as.SingleCellExperiment(data.integrated, assay= "integrated") 
+#Create main labels using the Immgen database
+singler.ImmGen <- SingleR(test = singleR, ref = ImmGen, labels = (ImmGen$label.main))
+#Create main labels using the Immgen database
+singler.MouseRNAseq <- SingleR(test = singleR, ref = MouseRNAseq, labels = (MouseRNAseq$label.main))
+#Save the singleR labels into our Seurat object as a metaData column
+data.integrated[["ImmGen"]] <- singler.ImmGen$labels 
+data.integrated[["MouseRNAseqdb"]] <- singler.MouseRNAseq$labels
+#Plot the main labels and compare them to the original Seurat clusters
+SR1 <- DimPlot(data.integrated, label=T, repel=T) + NoLegend()
+SR2 <- DimPlot(data.integrated, label=T, repel=T, group.by="ImmGen") + NoLegend()
+SR3 <- DimPlot(data.integrated, label=T, repel=T, group.by="MouseRNAseqdb") + NoLegend()
+SR1 + SR2 + SR3
+```
+
+# Low-level Cluster Identification
+Seurat has a built in function for differential expression across identities. In this case, our identities are currently numbered clusters and setting FindAllMarkers to report only genes expression in at least 50% of cells (for a given cluster) and with a positive fold change will give us markers that are highly expressed within each cluster. The max.cells.per.ident option limits the amount of cells included to reduce computational time.
+
+```{r llclustermarkers}
+lowlevel.markers <- FindAllMarkers(data.integrated, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=1000, verbose=FALSE)
+
+#Store the top10 markers for each cluster and write it to a table
+top10 <- lowlevel.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+
+#Put the top10 markers for each cluster into a formatted table
+top10 %>% formattable()
+```
+
+## Rename low-level identities
+Using the annotations from SingleR and the differentially expressed genes, we can assign annotations to each cell type cluster. For this, we heavily reference literature and seek to identify known cell type marker genes. We will further refine and adjust these results when we have more granular cell type annotations after subclustering.
+
+```{r renamellclusters}
+#Rename clusters based on their deduced identities
+data.integrated <- RenameIdents(data.integrated,
+                                '0' = "Macrophages",
+                                '1' = "Macrophages",
+                                '2' = "Monocytes",
+                                '3' = "B Cells",
+                                '4' = "Macrophages",
+                                '5' = "Dendritic Cells",
+                                '6' = "Dendritic Cells",
+                                '7' = "T Cells",
+                                '8' = "NK Cells",
+                                '9' = "Stromal Cells",
+                                '10' = "T Cells",
+                                '11' = "T Cells",
+                                '12' = "Macrophages",
+                                '13' = "T Cells",
+                                '14' = "ILCs",
+                                '15' = "Dendritic Cells",
+                                '16' = "Monocytes",
+                                '17' = "Plasma Cells",
+                                '18' = "T Cells",
+                                '19' = "Mast Cells",
+                                '20' = "Dendritic Cells",
+                                '21' = "Plasma Cells",
+                                '22' = "Stromal Cells",
+                                '23' = "Neutrophils",
+                                '24' = "B Cells",
+                                '25' = "Endothelial Cells",
+                                '26' = "Macrophages",
+                                '27' = "Dendritic Cells")
+```
+
+# Plot lowlevel clusters
+
+```{r llclusters, fig.width=6, fig.height=6}
+#Save and plot the low level identification
+data.integrated$lowlevel <- Idents(data.integrated)
+DimPlot(data.integrated, label=T) + NoLegend()
+```
+
+# High-level Cluster Identification
+
+For each of the 12 cell type clusters, we will subset the cells and repeat clustering to define subclusters. In this vignette, we refer to these subclusters as high-resolution or high-level clusters.
+
+## T and NK Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r NKTPCA, fig.width=3, fig.height=3}
+NKT <- subset(data.integrated, idents = c("T Cells", "NK Cells"))
+NKT <- RunPCA(NKT, features=VariableFeatures(NKT),dims=1:30, verbose=FALSE)
+ElbowPlot(NKT, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r NKTclustree, fig.width=12, fig.height=12}
+NKT <- FindNeighbors(NKT, dims=1:15, verbose=FALSE) 
+NKT <- FindClusters(NKT, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(NKT, prefix="integrated_snn_res.") 
+
+# Choose resolution
+NKT <- FindClusters(NKT, resolution=0.31, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r NKTdr, fig.width=6, fig.height=6}
+# Run UMAP
+NKT <- RunUMAP(NKT, dims=1:15, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(NKT, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r NKTfindmarkers}
+# Find Markers
+NKT.markers <- FindAllMarkers(NKT, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+NKT.markers.top10 <- NKT.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+NKT.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r NKTrenameidents}
+NKT <- RenameIdents(NKT,
+                               '0' = "NK Cells",
+                               '1' = "Effector CD8+ T Cells",
+                               '2' = "Th1 CD4+ T Cells",
+                               '3' = "NKT Cells",
+                               '4' = "gd T cells",
+                               '5' = "Memory CD8+ T Cells",
+                               '6' = "Tregs",
+                               '7' = "Proliferating CD8+ T Cells",
+                               '8' = "Th2 CD4+ T Cells")
+NKT$highlevel <- Idents(NKT)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r NKTplot, fig.width=6, fig.height=6}
+DimPlot(NKT, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="NK and T Cells")
+```
+
+
+
+## Dendritic Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r DCPCA, fig.width=3, fig.height=3}
+DCs <- subset(data.integrated, idents = c("Dendritic Cells"))
+DCs <- RunPCA(DCs, features=VariableFeatures(DCs),dims=1:30, verbose=FALSE)
+ElbowPlot(DCs, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r DCclustree, fig.width=12, fig.height=12}
+DCs <- FindNeighbors(DCs, dims=1:15, verbose=FALSE) 
+DCs <- FindClusters(DCs, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(DCs, prefix="integrated_snn_res.") 
+
+# Choose resolution
+DCs <- FindClusters(DCs, resolution=0.3, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r DCdr, fig.width=6, fig.height=6}
+# Run UMAP
+DCs <- RunUMAP(DCs, dims=1:15, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(DCs, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r DCfindmarkers}
+# Find Markers
+DCs.markers <- FindAllMarkers(DCs, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+DCs.markers.top10 <- DCs.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+DCs.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r DCsrenameidents}
+DCs <- RenameIdents(DCs,
+                               '0' = "cDC1",
+                               '1' = "cDC2",
+                               '2' = "moDCs",
+                               '3' = "Activated cDC2",
+                               '4' = "cDC1",
+                               '5' = "Proliferating cDC1",
+                               '6' = "cDC2",
+                               '7' = "Proliferating cDC2",
+                               '8' = "Proliferating cDC1",
+                               '9' = "Activated cDC1",
+                               '10' = "pDCs")
+DCs$highlevel <- Idents(DCs)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r DCplot, fig.width=6, fig.height=6}
+DimPlot(DCs, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Dendritic Cells")
+```
+
+
+
+## B and Plasma Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r BPCA, fig.width=3, fig.height=3}
+Bcells <- subset(data.integrated, idents = c("B Cells","Plasma Cells"))
+Bcells <- RunPCA(Bcells, features=VariableFeatures(Bcells),dims=1:30, verbose=FALSE)
+ElbowPlot(Bcells, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r Bclustree, fig.width=12, fig.height=12}
+Bcells <- FindNeighbors(Bcells, dims=1:10, verbose=FALSE) 
+Bcells <- FindClusters(Bcells, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(Bcells, prefix="integrated_snn_res.") 
+
+# Choose resolution
+Bcells <- FindClusters(Bcells, resolution=0.2, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r Bdr, fig.width=6, fig.height=6}
+# Run UMAP
+Bcells <- RunUMAP(Bcells, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(Bcells, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r Bfindmarkers}
+# Find Markers
+Bcells.markers <- FindAllMarkers(Bcells, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+Bcells.markers.top10 <- Bcells.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+Bcells.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r Brenameidents}
+Bcells <- RenameIdents(Bcells,
+                               '0' = "Naive B Cells",
+                               '1' = "Memory B Cells",
+                               '2' = "Plasma Cells",
+                               '3' = "B-1a Cells",
+                               '4' = "Plasma Cells",
+                               '5' = "Plasma Cells",
+                               '6' = "Plasma Cells")
+Bcells$highlevel <- Idents(Bcells)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r Bplot, fig.width=6, fig.height=6}
+DimPlot(Bcells, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="B and Plasma Cells")
+```
+
+
+
+## ILCs
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r ILCPCA, fig.width=3, fig.height=3}
+ILCs <- subset(data.integrated, idents = c("ILCs"))
+ILCs <- RunPCA(ILCs, features=VariableFeatures(ILCs),dims=1:30, verbose=FALSE)
+ElbowPlot(ILCs, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r ILCclustree, fig.width=12, fig.height=12}
+ILCs <- FindNeighbors(ILCs, dims=1:10, verbose=FALSE) 
+ILCs <- FindClusters(ILCs, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(ILCs, prefix="integrated_snn_res.") 
+
+# Choose resolution
+ILCs <- FindClusters(ILCs, resolution=0.3, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r ILCdr, fig.width=6, fig.height=6}
+# Run UMAP
+ILCs <- RunUMAP(ILCs, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(ILCs, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r ILCfindmarkers}
+# Find Markers
+ILCs.markers <- FindAllMarkers(ILCs, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+ILCs.markers.top10 <- ILCs.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+ILCs.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+There are not many significant differences between the two ILC clusters. Instead, we define these cells based on expression of their transcription factor expression for Gata3 and Klrg1.
+
+```{r ILCsRidge, fig.width=9, fig.height=3}
+RidgePlot(ILCs, features=c("Gata3","Eomes","Rorc"), assay="RNA")
+```
+
+
+```{r ILCrenameidents}
+ILCs <- RenameIdents(ILCs,
+                               '0' = "ILC2s",
+                               '1' = "ILC2s")
+ILCs$highlevel <- Idents(ILCs)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r ILCplot, fig.width=6, fig.height=6}
+DimPlot(ILCs, reduction="umap", group.by="highlevel", label=TRUE) + NoLegend() + labs(title="Type 2 Innate Lymphocytes")
+```
+
+
+
+## Macrophages and Monocytes
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r MMPCA, fig.width=3, fig.height=3}
+MM <- subset(data.integrated, idents = c("Macrophages","Monocytes"))
+MM <- RunPCA(MM, features=VariableFeatures(MM),dims=1:30, verbose=FALSE)
+ElbowPlot(MM, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r MMclustree, fig.width=12, fig.height=12}
+MM <- FindNeighbors(MM, dims=1:25, verbose=FALSE) 
+MM <- FindClusters(MM, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(MM, prefix="integrated_snn_res.") 
+
+# Choose resolution
+MM <- FindClusters(MM, resolution=0.25, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r MMdr, fig.width=6, fig.height=6}
+# Run UMAP
+MM <- RunUMAP(MM, dims=1:25, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(MM, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r MMfindmarkers}
+# Find Markers
+MM.markers <- FindAllMarkers(MM, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+MM.markers.top10 <- MM.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+MM.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+Macrophages were by far the largest population and some other cell types seem to have snuck in by Louvain clustering. The high levels of local lipid may induce transcriptional profiles that cause different cell types to converge. For example, population 6 are Mast Cells unique to WC expressing high levels of Mcpt4 and Cma1, but they can be found near the lipid-associated population.
+
+
+```{r MMrenameidents}
+MM <- RenameIdents(MM,
+                               '0' = "Tissue Resident Macrophages",
+                               '1' = "Tissue Resident Macrophages",
+                               '2' = "Classical Monocytes",
+                               '3' = "LAMs",
+                               '4' = "LAMs",
+                               '5' = "Non-classical Monocytes",
+                               '6' = "Proliferating Macrophages",
+                               '7' = "Mast Cells",
+                               '8' = "LAMs",
+                               '9' = "Apoptotic Cell Clearance Macrophages")
+MM$highlevel <- Idents(MM)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r MMplot, fig.width=6, fig.height=6}
+DimPlot(MM, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Monocytes and Macrophages")
+```
+
+
+
+## Stromal Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r stromalPCA, fig.width=3, fig.height=3}
+Stromal <- subset(data.integrated, idents = c("Stromal Cells"))
+Stromal <- RunPCA(Stromal, features=VariableFeatures(Stromal),dims=1:30, verbose=FALSE)
+ElbowPlot(Stromal, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r stromalclustree, fig.width=12, fig.height=12}
+Stromal <- FindNeighbors(Stromal, dims=1:10, verbose=FALSE) 
+Stromal <- FindClusters(Stromal, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(Stromal, prefix="integrated_snn_res.") 
+
+# Choose resolution
+Stromal <- FindClusters(Stromal, resolution=0.2, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r stromaldr, fig.width=6, fig.height=6}
+# Run UMAP
+Stromal <- RunUMAP(Stromal, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(Stromal, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Find Subcluster Markers
+
+Find differentially expressed markers between the subclusters.
+
+```{r stromalfindmarkers}
+# Find Markers
+Stromal.markers <- FindAllMarkers(Stromal, only.pos = TRUE, min.pct = 0.50, logfc.threshold = 0.25, max.cells.per.ident=500, verbose=FALSE) 
+
+# List top 10 genes for each subcluster in a table
+Stromal.markers.top10 <- Stromal.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+Stromal.markers.top10 %>% formattable()
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r stromalrenameidents}
+Stromal <- RenameIdents(Stromal,
+                               '0' = "Adipocyte Precursor Cells",
+                               '1' = "Adipocyte Precursor Cells",
+                               '2' = "Adipocyte Precursor Cells",
+                               '3' = "Adipocyte Precursor Cells",
+                               '4' = "Adipocyte Precursor Cells",
+                               '5' = "Mesothelial-like Cells")
+Stromal$highlevel <- Idents(Stromal)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r stromalplot, fig.width=6, fig.height=6}
+DimPlot(Stromal, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Stromal Cells")
+```
+
+
+
+
+
+## Mast Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r mastPCA, fig.width=3, fig.height=3}
+Mast <- subset(data.integrated, idents = c("Mast Cells"))
+Mast <- RunPCA(Mast, features=VariableFeatures(Mast),dims=1:30, verbose=FALSE)
+ElbowPlot(Mast, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r mastclustree, fig.width=12, fig.height=12}
+Mast <- FindNeighbors(Mast, dims=1:10, verbose=FALSE) 
+Mast <- FindClusters(Mast, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(Mast, prefix="integrated_snn_res.") 
+
+# Choose resolution
+Mast <- FindClusters(Mast, resolution=0.2, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r mastdr, fig.width=6, fig.height=6}
+# Run UMAP
+Mast <- RunUMAP(Mast, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(Mast, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r mastrenameidents}
+Mast <- RenameIdents(Mast, 
+                     '0' = "Mast Cells",
+                     '1' = "Mast Cells")
+Mast$highlevel <- Idents(Mast)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r mastplot, fig.width=6, fig.height=6}
+DimPlot(Mast, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Mast Cells")
+```
+
+
+
+
+
+## Neutrophils
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r neutroPCA, fig.width=3, fig.height=3}
+Neutrophils <- subset(data.integrated, idents = c("Neutrophils"))
+Neutrophils <- RunPCA(Neutrophils, features=VariableFeatures(Neutrophils),dims=1:30, verbose=FALSE)
+ElbowPlot(Neutrophils, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r neutroclustree, fig.width=12, fig.height=12}
+Neutrophils <- FindNeighbors(Neutrophils, dims=1:10, verbose=FALSE) 
+Neutrophils <- FindClusters(Neutrophils, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(Neutrophils, prefix="integrated_snn_res.") 
+
+# Choose resolution
+Neutrophils <- FindClusters(Neutrophils, resolution=0.2, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r neutrodr, fig.width=6, fig.height=6}
+# Run UMAP
+Neutrophils <- RunUMAP(Neutrophils, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(Neutrophils, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r neutronameidents}
+Neutrophils <- RenameIdents(Neutrophils, '0' = "Neutrophils")
+Neutrophils$highlevel <- Idents(Neutrophils)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r neutroplot, fig.width=6, fig.height=6}
+DimPlot(Neutrophils, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Neutrophils")
+```
+
+
+
+
+
+## Endothelial Cells
+
+### PCA and clustering
+
+Run PCA and determine dimensions for clustering.
+
+```{r endoPCA, fig.width=3, fig.height=3}
+ECs <- subset(data.integrated, idents = c("Endothelial Cells"))
+ECs <- RunPCA(ECs, features=VariableFeatures(ECs),dims=1:30, verbose=FALSE)
+ElbowPlot(ECs, ndims=30, reduction="pca")
+```
+
+Generate a clustering tree and determine clustering resolution for subclusters.
+
+```{r endoclustree, fig.width=12, fig.height=12}
+ECs <- FindNeighbors(ECs, dims=1:10, verbose=FALSE) 
+ECs <- FindClusters(ECs, resolution=res, verbose=FALSE) 
+
+# Clustering Tree
+clustree(ECs, prefix="integrated_snn_res.") 
+
+# Choose resolution
+ECs <- FindClusters(ECs, resolution=0.3, verbose=FALSE) 
+```
+
+### Dimensional Reduction
+
+Plot the dimensional reduction for the new cell subclusters.
+
+```{r endodr, fig.width=6, fig.height=6}
+# Run UMAP
+ECs <- RunUMAP(ECs, dims=1:10, verbose=FALSE) 
+
+# Plot UMAP
+DimPlot(ECs, reduction="umap", label=TRUE) + NoLegend() 
+```
+
+### Rename subcluster identities
+
+Using the information from SingleR and differential expression, assign annotations to the subclusters.
+
+```{r endorenameidents}
+ECs <- RenameIdents(ECs, '0' = "Endothelial Cells")
+ECs$highlevel <- Idents(ECs)
+```
+
+### Final Dim Plot
+
+As a final check, take a look at the Dim Plot for the subclusters and confirm that it makes sense.
+
+```{r endoplot, fig.width=6, fig.height=6}
+DimPlot(ECs, reduction="umap", group.by="highlevel", label=TRUE, repel=TRUE) + NoLegend() + labs(title="Endothelial Cells")
+```
+
+
+
+
+
+## Store the subcluster identities 
+
+Once we have renamed our cell subclusters, we have to merge the subsetted data and then add this information to our original integrated Seurat object.
+
+```{r remergeidents}
+remerge <- merge(NKT, y=c(DCs, Bcells, ILCs, MM, Stromal, Mast, Neutrophils, ECs)) 
+data.integrated <- AddMetaData(data.integrated, remerge$highlevel, col.name= "highlevel")
+```
+
+## Correct identities
+
+### Endothelial to stromal
+
+In later analysis, we reclassified endothelial cells as part of the major stromal cell cluster. To separate these changes from our original proprocessing, I designated these identities as `lowlevel2`
+
+```{r endotostromal}
+Idents(data.integrated) <- data.integrated$lowlevel
+data.integrated <- RenameIdents(data.integrated, "Endothelial Cells" = "Stromal Cells")
+data.integrated$lowlevel2 <- Idents(data.integrated)
+data.integrated$lowlevel2 <- factor(data.integrated$lowlevel2, levels=c("Macrophages","Monocytes","Dendritic Cells","T Cells","NK Cells","B Cells","Plasma Cells","Mast Cells","Neutrophils","ILCs","Stromal Cells"))
+```
+
+### Adjust highlevel subclusters
+
+We also renamed some of the subclusters to clarify what these cell types are. Again, we gave these renamed clusters their own designation to avoid confusion with our preprocessing pipeline and called them `highlevel2`. 
+
+```{r adjhl}
+Idents(data.integrated) <- data.integrated$highlevel
+data.integrated <- RenameIdents(data.integrated,
+                                "Apoptotic Cell Clearance Macrophages" = "Efferocytes",
+                                "gd T cells" = "gd T Cells",
+                                "Proliferating Macrophages" = "Cycling Macrophages",
+                                "Proliferating cDC2" = "Cycling cDC2",
+                                "Proliferating cDC1" = "Cycling cDC1",
+                                "Proliferating CD8+ T Cells" = "Cycling CD8+ T Cells",
+                                "Effector CD8+ T Cells" = "Effector Memory CD8+ T Cells",
+                                "Memory CD8+ T Cells" = "Central Memory CD8+ T Cells")
+data.integrated$highlevel2 <- Idents(data.integrated)
+```
+
+### Correct lowlevel and highlevel designations
+
+For robustness, we also made sure that cells that are macrophage subclusters should be under the `macrophage` umbrella. This fixes some problems noted above, such as a mast cell population that was originally clustered in with the macrophages.
+
+```{r adjll}
+Idents(data.integrated) <- data.integrated$highlevel2
+
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Tissue Resident Macrophages",
+                                                               "LAMs",
+                                                               "Cycling Macrophages",
+                                                               "Efferocytes"))] <- "Macrophages"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Classical Monocytes",
+                                                               "Non-classical Monocytes"))] <- "Monocytes"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("cDC1",
+                                                               "Activated cDC1","Cycling cDC1",
+                                                               "cDC2",
+                                                               "Activated cDC2",
+                                                               "Cycling cDC2",
+                                                               "pDCs",
+                                                               "moDCs"))] <- "Dendritic Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Th1 CD4+ T Cells",
+                                                               "Th2 CD4+ T Cells",
+                                                               "Tregs",
+                                                               "Effector Memory CD8+ T Cells",
+                                                               "Central Memory CD8+ T Cells",
+                                                               "Cycling CD8+ T Cells",
+                                                               "gd T Cells"))] <- "T Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("NKT Cells",
+                                                               "NK Cells"))] <- "NK Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Naive B Cells",
+                                                               "Memory B Cells",
+                                                               "B-1a Cells"))] <- "B Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Plasma Cells"))] <- "Plasma Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Mast Cells"))] <- "Mast Cells"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Neutrophils"))] <- "Neutrophils"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("ILC2s"))] <- "ILCs"
+data.integrated$lowlevel2[WhichCells(data.integrated, idents=c("Endothelial Cells",
+                                                               "Adipocyte Precursor Cells",
+                                                               "Mesothelial-like Cells"))] <- "Stromal Cells"
+```
+
+
+### Reorder the identities
+
+Finally, we reorder our identities, which makes downstream plotting much easier.
+
+```{r reorderidents}
+#Order levels of data.integrated
+data.integrated$highlevel2 <- factor(data.integrated$highlevel2, 
+                                     levels=c("Tissue Resident Macrophages",
+                                              "LAMs",
+                                              "Cycling Macrophages",
+                                              "Efferocytes",
+                                              "Classical Monocytes",
+                                              "Non-classical Monocytes",
+                                              "cDC1",
+                                              "Activated cDC1",
+                                              "Cycling cDC1",
+                                              "cDC2",
+                                              "Activated cDC2",
+                                              "Cycling cDC2",
+                                              "pDCs",
+                                              "moDCs",
+                                              "Th1 CD4+ T Cells",
+                                              "Th2 CD4+ T Cells",
+                                              "Tregs",
+                                              "Effector Memory CD8+ T Cells",
+                                              "Central Memory CD8+ T Cells",
+                                              "Cycling CD8+ T Cells",
+                                              "gd T Cells",
+                                              "NK Cells",
+                                              "NKT Cells",
+                                              "Naive B Cells",
+                                              "Memory B Cells",
+                                              "B-1a Cells",
+                                              "Plasma Cells",
+                                              "Mast Cells",
+                                              "Neutrophils",
+                                              "ILC2s",
+                                              "Endothelial Cells",
+                                              "Adipocyte Precursor Cells",
+                                              "Mesothelial-like Cells"))
+```
+
+
+
+
+# Plot Cluster Annotations
+
+## Colors
+
+First, assign the colors that we use throughout the study.
+
+```{r colors}
+maccols <- brewer.pal(n=8, name="Blues")[c(-1,-3,-5,-7)]
+monocols <- c("#ff8ade","#e324ad")
+dccols <- brewer.pal(n=9, name="Greens")[-1]
+tcols <- brewer.pal(n=8, name="Reds")[-1]
+nkcols <- c("#876149","#6e3f22")
+bcols <- brewer.pal(n=4, name="Purples")[-1]
+othcols <- c("#71a157","#00c5cc","#a18e25","#b282b3")
+strcols <- brewer.pal(n=4, name="Oranges")[-1]
+wccols = c("#878787", "#518db6","#94cc73","#e96b53")
+
+cols <- c(maccols,monocols,dccols,tcols,nkcols,bcols,othcols,strcols)
+
+llcols <- c("#4292C6","#ff8ade","#238B45","#EF3B2C","#876149","#9E9AC8","#71a157","#00c5cc","#a18e25","#b282b3","#FD8D3C")
+```
+
+## Plot Cell Types
+
+```{r celltypes, fig.width=6, fig.height=6}
+DimPlot(data.integrated, group.by="lowlevel2", cols=llcols, label=T) + 
+  NoLegend() + 
+  labs(title="Cell Types")
+```
+
+## Plot Subclusters
+
+```{r subclusters, fig.width=8, fig.height=8}
+DimPlot(data.integrated, group.by="highlevel2", cols=cols) + 
+  theme(legend.position="bottom", legend.text=element_text(size=7)) + 
+  labs(title="Subclusters")
+```
+
+# Save Progress
+
+```{r saveRDS}
+saveRDS(data.integrated, file="IntegratedData.RDS")
+```
+
+
+# Session Info
+
+```{r sessioninfo}
+sessionInfo()
+```
+
