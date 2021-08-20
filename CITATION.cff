@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use any of the resources or vignettes located in this repository, please remember to cite our work!"
+authors:
+- family-names: "Cottam"
+  given-names: "Matthew A."
+  orcid: "https://orcid.org/0000-0003-0619-1605"
+- family-names: "Caslin"
+  given-names: "Heather L."
+  orcid: "https://orcid.org/0000-0002-7471-6779"
+- family-names: "Winn"
+  given-names: "Nathan C."
+  orcid: "https://orcid.org/0000-0002-5276-0592"
+- family-names: "Hasty"
+  given-names: "Alyssa H."
+  orcid: "https://orcid.org/0000-0001-7302-8045"
+title: "Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain"
+doi: "https://doi.org/10.1101/2021.08.20.455954"
+date-released: 2021-08-20
+url: "https://www.biorxiv.org/content/10.1101/2021.08.20.455954v1"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Cottam"
+    given-names: "Matthew A."
+    orcid: "https://orcid.org/0000-0003-0619-1605"
+  - family-names: "Caslin"
+    given-names: "Heather L."
+    orcid: "https://orcid.org/0000-0002-7471-6779"
+  - family-names: "Winn"
+    given-names: "Nathan C."
+    orcid: "https://orcid.org/0000-0002-5276-0592"
+  - family-names: "Hasty"
+    given-names: "Alyssa H."
+    orcid: "https://orcid.org/0000-0001-7302-8045"
+  doi: "https://doi.org/10.1101/2021.08.20.455954"
+  journal: "bioRxiv"
+  month: 8
+  title: "Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain"
+  year: 2021
