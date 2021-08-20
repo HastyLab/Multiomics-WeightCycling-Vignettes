@@ -1,7 +1,10 @@
 # Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain - Generating the integrated data file
 This repository provides code and the minimally necessary files to generate the integrated Seurat v4 data object used in the following publication: **Under Review**. If you use code accessed through this github resource, please remember to cite our work:
 
-**CITATION INFORMATION**
+## **Citation Information:**
+### Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain.
+#### Matthew A Cottam, Heather L Caslin, Nathan C Winn, Alyssa H Hasty
+##### bioRxiv 2021.08.20.455954; **doi:** https://doi.org/10.1101/2021.08.20.455954
 
 ## What is contained in this repository?
 This repository has three vignettes. We start with sequencing data that has already been processed through 10X Genomic's CellRanger V3 software. We provide the clustering information, the filtered barcode matrix, and the raw barcode matrix for each sample. The associated datafiles also include both gene expression and feature barcoding information necessary to reproduce our integrated data object.
