@@ -1,5 +1,5 @@
 # Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain - Generating the integrated data file
-This repository provides code and the minimally necessary files to generate the integrated Seurat v4 data object used in the following publication: Cottam, M. A., Caslin, H. L., Winn, N. C., & Hasty, A. H. (2021). Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain. bioRxiv. https://doi.org/https://doi.org/10.1101/2021.08.20.455954. If you use code accessed through this github resource, please remember to cite our work:
+This repository provides code and the minimally necessary files to generate the integrated Seurat v4 data object used in the publication titled: Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain. If you use code accessed through this github resource, please remember to cite our work:
 
 ## **Citation Information:**
 ### Multiomics reveals persistence of obesity-associated immune cell phenotypes in adipose tissue during weight loss and subsequent weight regain.
